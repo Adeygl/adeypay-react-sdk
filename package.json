@@ -1,5 +1,5 @@
 {
-  "name": "adeypay-react-sdk",
+  "name": "@adeypaygl/adeypay-react-sdk",
   "version": "0.1.0",
   "private": false,
   "description": "AdeyPay merchant SDK (React + plain JS).",
@@ -29,7 +29,8 @@
     "build": "tsup",
     "clean": "rimraf dist",
     "prepare": "npm run build"
-  },  "repository": {
+  },
+  "repository": {
     "type": "git",
     "url": "https://github.com/Adeygl/adeypay-sdk.git"
   },
@@ -55,5 +56,8 @@
     "rimraf": "^6.0.1",
     "tsup": "^6.7.0",
     "typescript": "^5.9.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -35,6 +35,15 @@ export function PayButton({
   const popupRef = React.useRef<Window | null>(null);
   const handledRef = React.useRef<Set<string>>(new Set());
 
+  // derive allowed origin from openPayUrlBase for security checks
+  const allowedOrigin = React.useMemo(() => {
+    try {
+      return new URL(openPayUrlBase).origin;
+    } catch {
+      return null;
+    }
+  }, [openPayUrlBase]);
+
   // Handle payment creation and opening payment popup
   useEffect(() => {
     if (!paymentId) return;
@@ -51,7 +60,7 @@ export function PayButton({
         "AdeyPayPopup",
         `width=${popupWidth},height=${popupHeight},top=${top},left=${left}`
       );
-      
+
       if (!popupRef.current) {
         throw new Error("Popup blocked. Please allow popups for this site.");
       }
@@ -64,25 +73,64 @@ export function PayButton({
     }
 
     onCreated?.(paymentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentId, openPayUrlBase, onCreated, onError, popupWidth, popupHeight]);
 
-  // Handle payment status changes
+  // Listen for postMessage from popup (preferred)
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      // optional: verify origin if we have one
+      if (allowedOrigin && event.origin !== allowedOrigin) return;
+
+      const data = event.data ?? {};
+      if (data?.type !== "ADEYPAY_PAYMENT") return;
+
+      const incomingPaymentId: string | undefined = data.paymentId;
+      const incomingStatus: string | undefined = data.status;
+
+      // ensure the message is for the current payment
+      if (paymentId && incomingPaymentId && incomingPaymentId !== paymentId) return;
+
+      const key = `status-${incomingPaymentId ?? paymentId}`;
+      if (handledRef.current.has(key)) return; // already handled
+
+      if (incomingStatus === "approved") {
+        handledRef.current.add(key);
+        try {
+          onApproved?.(incomingPaymentId ?? paymentId!);
+        } catch (err) {
+          console.error("onApproved handler error:", err);
+        }
+
+        if (popupRef.current && !popupRef.current.closed) {
+          popupRef.current.close();
+        }
+      } else if (incomingStatus === "failed") {
+        handledRef.current.add(key);
+        onError?.(new Error("Payment failed (popup)"));
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [allowedOrigin, onApproved, onError, paymentId]);
+
+  // Handle payment status changes coming from usePayment()
   useEffect(() => {
     if (!status || !paymentId) return;
 
-    // Skip if already handled
-    if (handledRef.current.has(`status-${paymentId}`)) return;
+    const key = `status-${paymentId}`;
+    if (handledRef.current.has(key)) return;
 
     if (status === "approved") {
-      handledRef.current.add(`status-${paymentId}`);
+      handledRef.current.add(key);
       onApproved?.(paymentId);
-      
-      // Close the popup if it's still open
+
       if (popupRef.current && !popupRef.current.closed) {
         popupRef.current.close();
       }
     } else if (status === "failed") {
-      handledRef.current.add(`status-${paymentId}`);
+      handledRef.current.add(key);
       onError?.(new Error("Payment failed"));
     }
   }, [status, paymentId, onApproved, onError]);
@@ -93,7 +141,7 @@ export function PayButton({
 
     try {
       setLoading(true);
-      
+
       if (typeof amount !== "number" || isNaN(amount) || amount <= 0) {
         throw new Error("Invalid amount");
       }
